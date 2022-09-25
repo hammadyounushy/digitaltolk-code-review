@@ -2,6 +2,7 @@
 
 namespace DTApi\Repository;
 
+use App\Helper\Util;
 use DTApi\Events\SessionEnded;
 use DTApi\Helpers\SendSMSHelper;
 use Event;
@@ -133,45 +134,8 @@ class BookingRepository extends BaseRepository
         if ($user->user_type == env('CUSTOMER_ROLE_ID')) {
             $cuser = $user;
 
-            if (!isset($data['from_language_id'])) {
-                $response['status'] = 'fail';
-                $response['message'] = "Du måste fylla in alla fält";
-                $response['field_name'] = "from_language_id";
-                return $response;
-            }
-            if ($data['immediate'] == 'no') {
-                if (isset($data['due_date']) && $data['due_date'] == '') {
-                    $response['status'] = 'fail';
-                    $response['message'] = "Du måste fylla in alla fält";
-                    $response['field_name'] = "due_date";
-                    return $response;
-                }
-                if (isset($data['due_time']) && $data['due_time'] == '') {
-                    $response['status'] = 'fail';
-                    $response['message'] = "Du måste fylla in alla fält";
-                    $response['field_name'] = "due_time";
-                    return $response;
-                }
-                if (!isset($data['customer_phone_type']) && !isset($data['customer_physical_type'])) {
-                    $response['status'] = 'fail';
-                    $response['message'] = "Du måste göra ett val här";
-                    $response['field_name'] = "customer_phone_type";
-                    return $response;
-                }
-                if (isset($data['duration']) && $data['duration'] == '') {
-                    $response['status'] = 'fail';
-                    $response['message'] = "Du måste fylla in alla fält";
-                    $response['field_name'] = "duration";
-                    return $response;
-                }
-            } else {
-                if (isset($data['duration']) && $data['duration'] == '') {
-                    $response['status'] = 'fail';
-                    $response['message'] = "Du måste fylla in alla fält";
-                    $response['field_name'] = "duration";
-                    return $response;
-                }
-            }
+            //All these validations should be removed and handle from CreateBookingRequest class by setting rules on booking model
+
             if (isset($data['customer_phone_type'])) {
                 $data['customer_phone_type'] = 'yes';
             } else {
@@ -189,7 +153,7 @@ class BookingRepository extends BaseRepository
             if ($data['immediate'] == 'yes') {
                 $due_carbon = Carbon::now()->addMinute($immediatetime);
                 $data['due'] = $due_carbon->format('Y-m-d H:i:s');
-                $data['immediate'] = 'yes';
+                $data['immediate'] = 'yes'; //Not needed as this key is 'yes' already
                 $data['customer_phone_type'] = 'yes';
                 $response['type'] = 'immediate';
 
@@ -204,11 +168,9 @@ class BookingRepository extends BaseRepository
                     return $response;
                 }
             }
-            if (in_array('male', $data['job_for'])) {
-                $data['gender'] = 'male';
-            } else if (in_array('female', $data['job_for'])) {
-                $data['gender'] = 'female';
-            }
+
+            $data['gender'] = (in_array('male', $data['job_for'])) ? 'male' : 'female';
+
             if (in_array('normal', $data['job_for'])) {
                 $data['certified'] = 'normal';
             }
@@ -297,19 +259,16 @@ class BookingRepository extends BaseRepository
         }
         $job->save();
 
-        if (!empty($job->user_email)) {
-            $email = $job->user_email;
-            $name = $user->name;
-        } else {
-            $email = $user->email;
-            $name = $user->name;
-        }
+        // email should be send in queues and move to separate email mailer classes
+        $email = empty($job->user_email) ? $user->email : $job->user_email;
+        $name = $user->name;
         $subject = 'Vi har mottagit er tolkbokning. Bokningsnr: #' . $job->id;
         $send_data = [
             'user' => $user,
             'job'  => $job
         ];
         $this->mailer->send($email, $name, $subject, 'emails.job-created', $send_data);
+        //dispatch(new sendJobCreatedEmail($data));
 
         $response['type'] = $user_type;
         $response['job'] = $job;
@@ -541,7 +500,7 @@ class BookingRepository extends BaseRepository
         // prepare message templates
         $date = date('d.m.Y', strtotime($job->due));
         $time = date('H:i', strtotime($job->due));
-        $duration = $this->convertToHoursMins($job->duration);
+        $duration = Util::convertToHoursMins($job->duration);
         $jobId = $job->id;
         $city = $job->city ? $job->city : $jobPosterMeta->city;
 
@@ -1680,7 +1639,7 @@ class BookingRepository extends BaseRepository
         return $response;
     }
 
-    public function getAll(Request $request, $limit = null)
+    public function getAllUserJobs(Request $request, $limit = null)
     {
         $requestdata = $request->all();
         $cuser = $request->__authenticatedUser;
@@ -2159,26 +2118,6 @@ class BookingRepository extends BaseRepository
         } else {
             return ["Please try again!"];
         }
-    }
-
-    /**
-     * Convert number of minutes to hour and minute variant
-     * @param  int $time   
-     * @param  string $format 
-     * @return string         
-     */
-    private function convertToHoursMins($time, $format = '%02dh %02dmin')
-    {
-        if ($time < 60) {
-            return $time . 'min';
-        } else if ($time == 60) {
-            return '1h';
-        }
-
-        $hours = floor($time / 60);
-        $minutes = ($time % 60);
-        
-        return sprintf($format, $hours, $minutes);
     }
 
 }
